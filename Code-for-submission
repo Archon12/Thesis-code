@@ -1,1 +1,405 @@
+CHARALAMBOS ARIS ONOUFRIOU THESIS CODE 
+
+
+
+##Download traits from coral traits site##
+install.packages("reshape2")
+install.packages("rlist")
+library(reshape2)
+library(rlist)
+
+traits_list<-c(77, 104, 60, 8, 128, 41) 
+
+allTrait_list <- list() 
+
+for (i in traits_list) { 
+  
+  traitURL<-paste("https://coraltraits.org/traits/",i,".csv",sep = "") 
+  
+  metadata<-read.csv(traitURL,as.is=TRUE) 
+  
+  ### This function aggregates the different observations per species (many species have several observations for the trait)
+  
+  my_aggregate_rules <- function(x) {
+    if (length(x) > 1) {               
+      x <- type.convert(x, as.is=TRUE)
+      if (is.character(x)) {
+        return(x[1])                   
+      } else {
+        return(as.character(mean(x)))  
+      }
+    } else {
+      return(x)                        
+    }
+  }
+
+  trait <- acast(metadata, specie_name~trait_name, value.var="value", fun.aggregate=my_aggregate_rules, fill="")
+  
+ 
+  trait_df <- data.frame(trait, stringsAsFactors=FALSE)
+  
+  
+  allTrait_list<-list.append(allTrait_list,i=trait_df)
+  
+}
+
+# name each dataframe
+names(allTrait_list)<-c("IUCN", "Coloniality","Growth.rate","Sex.system", "Symbiodinium.subclade","Zooxanthellate")
+
+# iterate through the list and save each trait's dataframe in a csv file
+for (i in 1:length(allTrait_list)) {
+  filename<-paste(names(allTrait_list[i]),".csv",sep="")
+  print(filename)
+  write.csv(allTrait_list[[i]],filename)
+}
+
+###########################################################################
+
+library(ape)
+
+##Import new tree##
+newtree <- read.tree("Newtree.tre")
+
+########################################################################################
+
+#######Phylogenetic signal#########
+
+##Pagels Lambda- continuous data##
+install.packages("phyools")
+library(phytools)
+
+growthrate.signal <- phylosig(tree = newtree, traits.nosubclade$Growth.rate, method = "lambda", test = TRUE)
+
+##delta statistic - categorical data##
+library(ape)
+library(expm)
+
+#NENTROPY
+#returns the node entropies by calculating sum of the state entropies
+#prob: matrix of state probabilities
+
+nentropy <- function(prob) {
+  
+  k              <- ncol(prob)                       #number of states
+  prob[prob>1/k] <- prob[prob>1/k]/(1-k) - 1/(1-k)   #state entropies
+  tent           <- apply(prob,1,sum)                #node entropy
+  
+  #correct absolute 0/1
+  tent[tent == 0] <- tent[tent == 0] + runif(1,0,1)/10000
+  tent[tent == 1] <- tent[tent == 1] - runif(1,0,1)/10000
+  
+  return(tent)
+}
+
+#FUNCTION FOR BAYESIAN INFERENCES
+#bayesian inferences on the node entropies 
+#l0: rate parameter of the exponential prior distribution
+#se: standard deviation of the proposal distribution 
+#a:  alpha parameter (beta likelihood)
+#b:  beta paramter (beta likelihood)
+#x:  node entropies
+
+lpalpha <- function(a,b,x,l0) {          #log posterior alpha
+  N  <- length(x)
+  lp <- N*(lgamma(a+b)-lgamma(a)) - a*(l0-sum(log(x)))
+  return(lp)
+}
+
+lpbeta  <- function(a,b,x,l0) {          #log posterior beta
+  N  <- length(x)
+  lp <- N*(lgamma(a+b)-lgamma(b)) - b*(l0-sum(log(1-x)))
+  return(lp)
+}
+
+mhalpha <- function(a,b,x,l0,se) {       #metropolis hastings alpha
+  a0 <- a
+  a1 <- exp(rnorm(1,log(a0),se))
+  
+  r  <- min(1, exp(lpalpha(a1,b,x,l0) - lpalpha(a0,b,x,l0) ) )
+  
+  while (is.na(r) == T) {
+    a1 <- exp(rnorm(1,log(a0),se))
+    r  <- min(1, exp(lpalpha(a1,b,x,l0) - lpalpha(a0,b,x,l0) ) )
+  }
+  
+  if (runif(1) < r) {
+    return(a1) 
+  } else {
+    return(a0)
+  }
+}
+
+mhbeta  <- function(a,b,x,l0,se) {      #metropolis hastings beta
+  b0 <- b
+  b1 <- exp(rnorm(1,log(b0),se))
+  
+  r  <- min(1, exp(lpbeta(a,b1,x,l0) - lpbeta(a,b0,x,l0) ) )
+  
+  while (is.na(r) == T) {
+    b1 <- exp(rnorm(1,log(b0),se))
+    r  <- min(1, exp(lpbeta(a,b1,x,l0) - lpbeta(a,b0,x,l0) ) )
+  }  
+  
+  if (runif(1) < r) {
+    return(b1)
+  } else {
+    return(b0)
+  }
+}
+
+#MCMC
+#Markov chain monte carlo scheme using the conditional posteriors of alpha and beta
+#alpha: initial value of alpha
+#beta: initial values of beta
+#x: node entropies
+#sim: number of iterations
+#thin: controles the number of saved iterations = sim/thin
+#burn: number of iterates to burn
+
+emcmc <- function(alpha,beta,x,l0,se,sim,thin,burn) {
+  
+  usim <- seq(burn,sim,thin)
+  gibbs <- matrix(NA,ncol=2,nrow=length(usim))
+  p <- 1
+  
+  for (i in 1:sim) {
+    alpha <- mhalpha(alpha,beta,x,l0,se)
+    beta  <- mhbeta(alpha,beta,x,l0,se)
+    
+    if (i == usim[p]) {
+      gibbs[p,] <- c(alpha,beta)
+      p <- p+1
+    }
+  }  
+  return(gibbs)
+}
+
+#RATE MATRIX FOR TRAIT EVOLUTION. K=2 TO 5
+ratematrix <- function(pi,rho){
+  
+  k <- length(pi)
+  
+  if (k==2){
+    r <- c(pi[1]*0     ,pi[2]*rho[1],
+           pi[1]*rho[1],pi[2]*0)
+  }
+  
+  if (k==3){
+    r <- c(pi[1]*0     ,pi[2]*rho[1],pi[3]*rho[2],
+           pi[1]*rho[1],pi[2]*0     ,pi[3]*rho[3],
+           pi[1]*rho[2],pi[2]*rho[3],pi[3]*0 )
+  }
+  
+  if (k==4){
+    r <- c(pi[1]*0     ,pi[2]*rho[1],pi[3]*rho[2],pi[4]*rho[3],
+           pi[1]*rho[1],pi[2]*0     ,pi[3]*rho[4],pi[4]*rho[5],
+           pi[1]*rho[2],pi[2]*rho[4],pi[3]*0     ,pi[4]*rho[6],
+           pi[1]*rho[3],pi[2]*rho[5],pi[3]*rho[6],pi[4]*0 )
+  }  
+  
+  if (k==5){
+    r <- c(pi[1]*0     ,pi[2]*rho[1],pi[3]*rho[2],pi[4]*rho[3] ,pi[5]*rho[4],
+           pi[1]*rho[1],pi[2]*0     ,pi[3]*rho[5],pi[4]*rho[6] ,pi[5]*rho[7],
+           pi[1]*rho[2],pi[2]*rho[5],pi[3]*0     ,pi[4]*rho[8] ,pi[5]*rho[9],
+           pi[1]*rho[3],pi[2]*rho[6],pi[3]*rho[8],pi[4]*0      ,pi[5]*rho[10],
+           pi[1]*rho[4],pi[2]*rho[7],pi[3]*rho[9],pi[4]*rho[10],pi[5]*0)
+  }
+  
+  R <- matrix(r,ncol=k,nrow=k) 
+  diag(R) <- -rowSums(R)
+  
+  return(R)
+}
+
+#RTRAIT
+#simulates the evolution of a trait in a given tree
+# tree: metric-tree
+# R: rate matrix
+# nstates: number of states
+
+rtrait <- function(tree,R,nstates) {
+  
+  nspecis <- length(tree$tip.label)
+  
+  #tree
+  edge <- cbind(tree$edge,tree$edge.length)
+  
+  ancestral <- rep(NA,2*nspecies-1) 
+  ancestral[nspecies+1] <- sample(1:nstates,1,prob=pi) 
+  
+  #rate change
+  inode <- nspecies+1
+  while (sum(is.na(ancestral)) > 0) {
+    
+    inode1 <-  edge[which(edge[,1]==inode)[1],2]
+    inode2 <-  edge[which(edge[,1]==inode)[2],2]
+    bl1 <- edge[which(edge[,1]==inode)[1],3]
+    bl2 <- edge[which(edge[,1]==inode)[2],3]
+    
+    astate <- rep(0,nstates)
+    astate[ancestral[inode]] <- 1 
+    
+    ancestral[inode1] <- sample(1:nstates,1,prob=astate%*%expm(R*bl1))
+    ancestral[inode2] <- sample(1:nstates,1,prob=astate%*%expm(R*bl2))
+    
+    inode <- inode+1
+  }
+  return(ancestral[1:nspecies])
+  
+}
+
+#DELTA
+#calculate delta statistic
+#trait: trait vector 
+delta <- function(trait, tree,lambda0,se,sim,thin,burn) {
+  
+  ar <- ace(trait,tree,type="discrete",method="ML",model="ARD")$lik.anc
+  
+  # deletes the complex part whenever it pops up
+  if (class(ar[1,1]) == "complex"){
+    ar <- Re(ar)
+  }
+  
+  x  <- nentropy(ar)
+  mc1    <- emcmc(rexp(1),rexp(1),x,lambda0,se,sim,thin,burn)
+  mc2    <- emcmc(rexp(1),rexp(1),x,lambda0,se,sim,thin,burn)
+  mchain <- rbind(mc1,mc2)
+  deltaA <- mean(mchain[,2]/mchain[,1])
+  
+  return(deltaA)
+}
+
+#Run delta function for all traits using $-symbol#
+emcmc()
+for (col in 1) {traits.nosubclade[,col] <- factor(traits.nosubclade[,col])}
+for (col in 3:10) {traits.nosubclade[,col] <- factor(traits.nosubclade[,col])}
+str(traits.nosubclade)
+IUCN.signal <- delta(trait = traits.nosubclade$IUCN.Red.List.category,tree = newtree, lambda0 = 0, se = 0.05, sim = 10000, burn = 100)
+
+
+#p-value of delta statistic#
+
+random_delta <- rep(NA,100)
+
+for (i in 1:100){
+  rtrait <- sample(traits.nosubclade$IUCN.Red.List.category)
+  random_delta[i] <- delta(rtrait, newtree, lambda0 = 0, se = 0.05, sim = 10000,thin = 10, burn = 100)
+}
+   #add signal value of a trait after "random_delta>" #
+p_value_IUCN <- sum(random_delta>IUCN.signal)/length(random_delta)
+
+#plots#
+
+boxplot(random_delta, main = "IUCN Red List Category Signal")
+abline(h=c(IUCN.signal), col = "red")
+text(locator(), labels = c("Phylogenetic Signal - 0.59"))
+
+#p-value of Pagel's lambda method#
+p_value_growth <- growthrate.signal$P
+
+#export p-values#
+
+delta.p_values <- c(p_value_clade,p_value_coloniality,p_value_exposure,p_value_IUCN,p_value_sensitivity,p_value_sex,p_value_unadapt,p_value_vulnerability,p_value_zoo, p_value_growth)
+delta.p_values<- as.data.frame(delta.p_values)
+row.names(delta.p_values) <- c("Symbiodinium.Clade", "Coloniality", "CC.Exposure", "IUCN.Red.List", "CC.Sensitivity", "Sexual.System", "CC.Unadaptability", "CC.Vulnerability", "Zooxanthellate", "Growth Rate")
+colnames(delta.p_values) <- c("Delta P-values")
+write.csv(delta.p_values, "Phylo.signal.Pvalues.csv")
+
+#export phylo signal values#
+growth.signal <- growthrate.signal$lambda
+phylosignal.values <- c(clade.signal, coloniality.signal, exposure.signal, growth.signal, IUCN.signal, sensitivity.signal, sex.signal, unadaptability.signal,vulnerability.signal,zooxanthellate.signal)
+phylosignal.values <- as.data.frame(phylosignal.values)
+rownames(phylosignal.values) <- c("Symbiodinium.Clade", "Coloniality", "CC.Exposure", "Growth.Rate", "IUCN.Red.List", "CC.Sensitivity", "Sexual.System", "CC.Unadaptability", "CC.Vulnerability", "Zooxanthellate")
+colnames(phylosignal.values) <- c("Phylogenetic Signal values")
+write.csv(phylosignal.values, "Phylo.signal.values.csv")
+
+################################################################################
+
+####Imputation####
+
+install.packages("missForest")
+library(missForest)
+
+##Import phylogeny traits no subclade##
+traits.nosubclade <- read.csv("traits.nosubclade.csv", header = TRUE, row.names = 1)
+
+#turn traits.nosubclade into factors#
+for (col in 1) {traits.nosubclade[,col] <- factor(traits.nosubclade[,col])}
+for (col in 3:10) {traits.nosubclade[,col] <- factor(traits.nosubclade[,col])}
+
+##Imputation using missForest## 
+trait.imp <- missForest(traits.nosubclade)
+
+##Create & export imputed dataframe##
+imputed.species <- as.data.frame(trait.imp$ximp)
+write.csv(imputed.species, "Imputed species.csv")
+
+imputed.species <- read.csv("Imputed species.csv", header = TRUE)
+imputed.species <- gsub(" ", "_", imputed.species[[1]])
+
+
+##import imputed species file##
+imputed.species <- read.csv("Imputed species.csv", header = TRUE)
+
+#turn imputation from chr to factor# - not needed, imputed data turned to binary
+#for (col in 1:2) {imputed.species[,col] <- factor(imputed.species[,col])}
+#for (col in 4:11) {imputed.species[,col] <- factor(imputed.species[,col])}
+#str(imputed.species)
+
+####################################################################################
+
+######PGLM analysis#######
+
+library(ape)
+library(geiger)
+library(nlme)
+library(phytools)
+library(caper)
+library(stats)
+
+
+#import imputed.species.binary for comparison#
+imp.spp.binary <- read.csv("Imputed.species.binary.csv")
+
+#import and name check new tree#
+
+newtree <- read.tree("Newtree.tre")
+name.check(newtree, imp.spp.binary)
+
+
+#turn imputation binary from chr to factor- no need for this- leave as int & chr#
+#for (col in 5) {imp.spp.binary[,col] <- factor(imp.spp.binary[,col])}
+#for (col in 7) {imp.spp.binary[,col] <- factor(imp.spp.binary[,col])}
+#for (col in 10) {imp.spp.binary[,col] <- factor(imp.spp.binary[,col])}
+#for (col in 15:16) {imp.spp.binary[,col] <- factor(imp.spp.binary[,col])}
+str(imp.spp.binary)
+
+#investigates relationship between traits use PGLM#
+
+install.packages("phylolm")
+library(phylolm)
+
+herma.unadapt.glm <- phyloglm(CC.unadaptability~hermaphrodite, data = imp.spp.binary, phy = newtree)
+summary(herma.unadapt.glm)
+
+gono.unadapt.glm <- phyloglm(CC.unadaptability~gonochore,data = imp.spp.binary, phy = newtree)
+summary(gono.unadapt.glm)
+
+growth.unadapt.glm <- phyloglm(CC.unadaptability~Growth.rate, data = imp.spp.binary, phy = newtree)
+summary(growth.unadapt.glm)
+
+cladeA.unadapt.glm <- phyloglm(CC.unadaptability~Clade.A, data = imp.spp.binary, phy = newtree)
+summary(cladeA.unadapt.glm)
+
+cladeB.unadapt.glm <- phyloglm(CC.unadaptability~Clade.B, data = imp.spp.binary, phy = newtree)
+summary(cladeB.unadapt.glm)
+
+cladeC.unadapt.glm <- phyloglm(CC.unadaptability~Clade.C, data = imp.spp.binary, phy = newtree)
+summary(cladeC.unadapt.glm)
+
+cladeD.unadapt.glm <- phyloglm(CC.unadaptability~Clade.D, data = imp.spp.binary, phy = newtree)
+summary(cladeD.unadapt.glm)
+
+
+
 
