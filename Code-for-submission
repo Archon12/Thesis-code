@@ -1,12 +1,23 @@
 CHARALAMBOS ARIS ONOUFRIOU THESIS CODE 
 
-
-
-##Download traits from coral traits site##
+library(ape)
 install.packages("reshape2")
 install.packages("rlist")
 library(reshape2)
 library(rlist)
+install.packages("missForest")
+library(missForest)
+library(ape)
+library(geiger)
+library(nlme)
+library(phytools)
+library(caper)
+library(stats)
+install.packages("phylolm")
+library(phylolm)
+
+##Download traits from coral traits site##
+
 
 traits_list<-c(77, 104, 60, 8, 128, 41) 
 
@@ -53,9 +64,8 @@ for (i in 1:length(allTrait_list)) {
   write.csv(allTrait_list[[i]],filename)
 }
 
-###########################################################################
+########################################################################################
 
-library(ape)
 
 ##Import new tree##
 newtree <- read.tree("Newtree.tre")
@@ -64,11 +74,16 @@ newtree <- read.tree("Newtree.tre")
 
 #######Phylogenetic signal#########
 
+traits.nosubclade <- read.csv("traits.nosubclade.csv", header = TRUE, row.names = 1)
+
 ##Pagels Lambda- continuous data##
 install.packages("phyools")
 library(phytools)
-
+library(graphics)
+ 
 growthrate.signal <- phylosig(tree = newtree, traits.nosubclade$Growth.rate, method = "lambda", test = TRUE)
+growth.signal <- growthrate.signal$lambda
+######################################################
 
 ##delta statistic - categorical data##
 library(ape)
@@ -269,56 +284,180 @@ delta <- function(trait, tree,lambda0,se,sim,thin,burn) {
   return(deltaA)
 }
 
-#Run delta function for all traits using $-symbol#
-emcmc()
+#Run delta function for all traits#
+
 for (col in 1) {traits.nosubclade[,col] <- factor(traits.nosubclade[,col])}
 for (col in 3:10) {traits.nosubclade[,col] <- factor(traits.nosubclade[,col])}
 str(traits.nosubclade)
-IUCN.signal <- delta(trait = traits.nosubclade$IUCN.Red.List.category,tree = newtree, lambda0 = 0, se = 0.05, sim = 10000, burn = 100)
+
+col.signal <- delta(trait = traits.nosubclade$Coloniality,tree = newtree, lambda0 = 0, se = 0.05, sim = 10000, burn = 100)
+iucn.signal <- delta(trait = traits.nosubclade$IUCN.Red.List.category,tree = newtree, lambda0 = 0, se = 0.05, sim = 10000, burn = 100)
+sex.signal <- delta(trait = traits.nosubclade$Sexual.System,tree = newtree, lambda0 = 0, se = 0.05, sim = 10000, burn = 100)
+clade.signal <- delta(trait = traits.nosubclade$Symbiodinium.clade,tree = newtree, lambda0 = 0, se = 0.05, sim = 10000, burn = 100)
+zoox.signal <- delta(trait = traits.nosubclade$Zooxanthellate,tree = newtree, lambda0 = 0, se = 0.05, sim = 10000, burn = 100)
+sensi.signal <- delta(trait = traits.nosubclade$CC.sensitivity,tree = newtree, lambda0 = 0, se = 0.05, sim = 10000, burn = 100)
+unadapt.signal <- delta(trait = traits.nosubclade$CC.unadaptability,tree = newtree, lambda0 = 0, se = 0.05, sim = 10000, burn = 100)
+expo.signal <- delta(trait = traits.nosubclade$CC.exposure,tree = newtree, lambda0 = 0, se = 0.05, sim = 10000, burn = 100)
+vulne.signal <- delta(trait = traits.nosubclade$Overall.CC.Vulnerability,tree = newtree, lambda0 = 0, se = 0.05, sim = 10000, burn = 100)
 
 
-#p-value of delta statistic#
+######delta p-value#####
 
-random_delta <- rep(NA,100)
+#coloniality#
+random_delta_col <- rep(NA,100)
+for (i in 1:100){
+    rtrait <- sample(traits.nosubclade$Coloniality)
+  random_delta_col[i] <- delta(rtrait, newtree, lambda0 = 0, se = 0.05, sim = 10000,thin = 10, burn = 100)
+}
+p_value_col <- sum(random_delta_col>col.signal)/length(random_delta_col)
+summary(random_delta_col)
 
+#iucn red list#
+random_delta_iucn <- rep(NA,100)
 for (i in 1:100){
   rtrait <- sample(traits.nosubclade$IUCN.Red.List.category)
-  random_delta[i] <- delta(rtrait, newtree, lambda0 = 0, se = 0.05, sim = 10000,thin = 10, burn = 100)
+  random_delta_iucn[i] <- delta(rtrait, newtree, lambda0 = 0, se = 0.05, sim = 10000,thin = 10, burn = 100)
 }
-   #add signal value of a trait after "random_delta>" #
-p_value_IUCN <- sum(random_delta>IUCN.signal)/length(random_delta)
+p_value_iucn <- sum(random_delta_iucn>iucn.signal)/length(random_delta_iucn)
+summary(random_delta_iucn)
 
-#plots#
+#sexual system#
+random_delta_sex <- rep(NA,100)
+for (i in 1:100){
+  rtrait <- sample(traits.nosubclade$Sexual.System)
+  random_delta_sex[i] <- delta(rtrait, newtree, lambda0 = 0, se = 0.05, sim = 10000,thin = 10, burn = 100)
+}
+p_value_sex <- sum(random_delta_sex>sex.signal)/length(random_delta_sex)
+summary(random_delta_sex)
 
-boxplot(random_delta, main = "IUCN Red List Category Signal")
-abline(h=c(IUCN.signal), col = "red")
-text(locator(), labels = c("Phylogenetic Signal - 0.59"))
+#symbiodinium clade#
+random_delta_clade <- rep(NA,100)
+for (i in 1:100){
+  rtrait <- sample(traits.nosubclade$Symbiodinium.clade)
+  random_delta_clade[i] <- delta(rtrait, newtree, lambda0 = 0, se = 0.05, sim = 10000,thin = 10, burn = 100)
+}
+p_value_clade <- sum(random_delta_clade>clade.signal)/length(random_delta_clade)
+summary(random_delta_clade)
 
-#p-value of Pagel's lambda method#
-p_value_growth <- growthrate.signal$P
+#zooxantallae#
+random_delta_zoox <- rep(NA,100)
+for (i in 1:100){
+  rtrait <- sample(traits.nosubclade$Zooxanthellate)
+  random_delta_zoox[i] <- delta(rtrait, newtree, lambda0 = 0, se = 0.05, sim = 10000,thin = 10, burn = 100)
+}
+p_value_zoox <- sum(random_delta_zoox>zoox.signal)/length(random_delta_zoox)
+summary(random_delta_zoox)
 
-#export p-values#
+#CC sensitivity#
+random_delta_sensi <- rep(NA,100)
+for (i in 1:100){
+  rtrait <- sample(traits.nosubclade$CC.sensitivity)
+  random_delta_sensi[i] <- delta(rtrait, newtree, lambda0 = 0, se = 0.05, sim = 10000,thin = 10, burn = 100)
+}
+p_value_sensi <- sum(random_delta_sensi>sensi.signal)/length(random_delta_sensi)
+summary(random_delta_sensi)
 
-delta.p_values <- c(p_value_clade,p_value_coloniality,p_value_exposure,p_value_IUCN,p_value_sensitivity,p_value_sex,p_value_unadapt,p_value_vulnerability,p_value_zoo, p_value_growth)
-delta.p_values<- as.data.frame(delta.p_values)
-row.names(delta.p_values) <- c("Symbiodinium.Clade", "Coloniality", "CC.Exposure", "IUCN.Red.List", "CC.Sensitivity", "Sexual.System", "CC.Unadaptability", "CC.Vulnerability", "Zooxanthellate", "Growth Rate")
-colnames(delta.p_values) <- c("Delta P-values")
-write.csv(delta.p_values, "Phylo.signal.Pvalues.csv")
+#CC unadaptability#
+random_delta_unadapt <- rep(NA,100)
+for (i in 1:100){
+  rtrait <- sample(traits.nosubclade$CC.unadaptability)
+  random_delta_unadapt[i] <- delta(rtrait, newtree, lambda0 = 0, se = 0.05, sim = 10000,thin = 10, burn = 100)
+}
+p_value_unadapt <- sum(random_delta_unadapt>unadapt.signal)/length(random_delta_unadapt)
+summary(random_delta_unadapt)
 
-#export phylo signal values#
-growth.signal <- growthrate.signal$lambda
-phylosignal.values <- c(clade.signal, coloniality.signal, exposure.signal, growth.signal, IUCN.signal, sensitivity.signal, sex.signal, unadaptability.signal,vulnerability.signal,zooxanthellate.signal)
-phylosignal.values <- as.data.frame(phylosignal.values)
-rownames(phylosignal.values) <- c("Symbiodinium.Clade", "Coloniality", "CC.Exposure", "Growth.Rate", "IUCN.Red.List", "CC.Sensitivity", "Sexual.System", "CC.Unadaptability", "CC.Vulnerability", "Zooxanthellate")
-colnames(phylosignal.values) <- c("Phylogenetic Signal values")
-write.csv(phylosignal.values, "Phylo.signal.values.csv")
+#CC exposure#
+random_delta_expo <- rep(NA,100)
+for (i in 1:100){
+  rtrait <- sample(traits.nosubclade$CC.exposure)
+  random_delta_expo[i] <- delta(rtrait, newtree, lambda0 = 0, se = 0.05, sim = 10000,thin = 10, burn = 100)
+}
+p_value_expo <- sum(random_delta_expo>expo.signal)/length(random_delta_expo)
+summary(random_delta_expo)
+
+#CC vulnerability#
+random_delta_vulne <- rep(NA,100)
+for (i in 1:100){
+  rtrait <- sample(traits.nosubclade$Overall.CC.Vulnerability)
+  random_delta_vulne[i] <- delta(rtrait, newtree, lambda0 = 0, se = 0.05, sim = 10000,thin = 10, burn = 100)
+}
+p_value_vulne <- sum(random_delta_vulne>vulne.signal)/length(random_delta_vulne)
+summary(random_delta_vulne)
+
+
+#combine plots#
+par(mfrow=c(2,3))
+
+##make plots##
+
+#1st combination#
+par(mfrow=c(2,2))
+
+boxplot(random_delta_sex, main = "Sexual System", ylab = "Phylogenetic signal value", xlab = "Random deltas", ylim = c(0,4))
+abline(h=c(sex.signal), col = "red")
+text(locator(), labels = c("True Phylogenetic Signal: 3.74"), cex = 0.5)
+text(locator(), labels = c("*P-value: 0"), col = "orange", cex = 0.5)
+
+boxplot(random_delta_unadapt, main = "CC Unadaptability", ylab = "Phylogenetic signal value", xlab = "Random deltas", ylim = c(0,2.3))
+abline(h=c(unadapt.signal), col = "red")
+text(locator(), labels = c("True Phylogenetic Signal: 1.98"), cex = 0.5)
+text(locator(), labels = c("*P-value: 0.01"), col = "orange", cex = 0.5)
+
+boxplot(random_delta_col, main = "Coloniality", ylab = "Phylogenetic signal value", xlab = "Random deltas")
+abline(h=c(col.signal), col = "red")
+text(locator(), labels = c("True Phylogenetic Signal: 9.08"), cex = 0.5)
+text(locator(), labels = c("*P-value: 0.03"), col = "orange", cex = 0.5)
+
+#2nd combination#
+
+par(mfrow=c(2,2))
+
+boxplot(random_delta_vulne, main = "CC Vulnerability", ylab = "Phylogenetic signal value", xlab = "Random deltas")
+abline(h=c(vulne.signal), col = "red")
+text(locator(), labels = c("True Phylogenetic Signal: 1.88"), cex = 0.5)
+text(locator(), labels = c("*P-value: 0.53"), col = "orange", cex = 0.5)
+
+boxplot(random_delta_expo, main = "CC Exposure", ylab = "Phylogenetic signal value", xlab = "Random deltas")
+abline(h=c(expo.signal), col = "red")
+text(locator(), labels = c("True Phylogenetic Signal: 0.59"), cex = 0.5)
+text(locator(), labels = c("*P-value: 0.63"), col = "orange", cex = 0.5)
+
+boxplot(random_delta_clade, main = "Symbiodinium Clade", ylab = "Phylogenetic signal value", xlab = "Random deltas")
+abline(h=c(clade.signal), col = "red")
+text(locator(), labels = c("True Phylogenetic Signal: 2.30"), cex = 0.5)
+text(locator(), labels = c("*P-value: 0.96"), col = "orange", cex = 0.5)
+
+par(mfrow=c(2,2))
+
+plot(phylosig(tree = newtree, traits.nosubclade$Growth.rate, method = "lambda", test = TRUE), main ="Growth Rate")
+title( main = "Growth rate")
+text(locator(), labels = c("*P-value: 0.036"), col = "orange", cex = 0.5)
+text(locator(), labels = c("0.17"), col = "black", cex = 0.5)
+p_value_growth <- growthrate.signal$P #p-value lambda#
+
+boxplot(random_delta_zoox, main = "Zooxanthellae", ylab = "Phylogenetic signal value", xlab = "Random deltas")
+abline(h=c(zoox.signal), col = "red")
+text(locator(), labels = c("True Phylogenetic Signal: 8.87"), cex = 0.5)
+text(locator(), labels = c("*P-value: 0.96"), col = "orange", cex = 0.5)
+
+#3rd combination#
+par(mfrow=c(2,2))
+
+boxplot(random_delta_iucn, main = "IUCN Red List Cat.", ylab = "Phylogenetic signal value", xlab = "Random deltas", ylim = c(0.55, 0.8))
+abline(h=c(iucn.signal), col = "red")
+text(locator(), labels = c("True Phylogenetic Signal: 0.59"), cex = 0.5)
+text(locator(), labels = c("*P-value: 1"), col = "orange", cex = 0.5)
+
+boxplot(random_delta_sensi, main = "CC Sensitivity", ylab = "Phylogenetic signal value", xlab = "Random deltas", ylim = c(15,69))
+abline(h=c(sensi.signal), col = "red")
+text(locator(), labels = c("True Phylogenetic Signal: 21.32"), cex = 0.5)
+text(locator(), labels = c("*P-value: 0.98"), col = "orange", cex = 0.5)
+
 
 ################################################################################
 
 ####Imputation####
 
-install.packages("missForest")
-library(missForest)
 
 ##Import phylogeny traits no subclade##
 traits.nosubclade <- read.csv("traits.nosubclade.csv", header = TRUE, row.names = 1)
@@ -350,34 +489,16 @@ imputed.species <- read.csv("Imputed species.csv", header = TRUE)
 
 ######PGLM analysis#######
 
-library(ape)
-library(geiger)
-library(nlme)
-library(phytools)
-library(caper)
-library(stats)
 
-
-#import imputed.species.binary for comparison#
+#import imputed.species.binary for analysis#
 imp.spp.binary <- read.csv("Imputed.species.binary.csv")
 
 #import and name check new tree#
-
 newtree <- read.tree("Newtree.tre")
 name.check(newtree, imp.spp.binary)
 
 
-#turn imputation binary from chr to factor- no need for this- leave as int & chr#
-#for (col in 5) {imp.spp.binary[,col] <- factor(imp.spp.binary[,col])}
-#for (col in 7) {imp.spp.binary[,col] <- factor(imp.spp.binary[,col])}
-#for (col in 10) {imp.spp.binary[,col] <- factor(imp.spp.binary[,col])}
-#for (col in 15:16) {imp.spp.binary[,col] <- factor(imp.spp.binary[,col])}
-str(imp.spp.binary)
-
 #investigates relationship between traits use PGLM#
-
-install.packages("phylolm")
-library(phylolm)
 
 herma.unadapt.glm <- phyloglm(CC.unadaptability~hermaphrodite, data = imp.spp.binary, phy = newtree)
 summary(herma.unadapt.glm)
@@ -401,5 +522,11 @@ cladeD.unadapt.glm <- phyloglm(CC.unadaptability~Clade.D, data = imp.spp.binary,
 summary(cladeD.unadapt.glm)
 
 
+###phyloglmstep###
 
+glmstep_significant <- phyloglmstep(CC.unadaptability~gonochore+Growth.rate+Clade.C+Clade.B, data = imp.spp.binary,phy = newtree, direction = "back")
+summary(glmstep_significant)
+
+glmstep_significant_2 <-phyloglmstep(CC.unadaptability~hermaphrodite+Growth.rate+Clade.C+Clade.B, data = imp.spp.binary,phy = newtree, direction = "back")
+summary(glmstep_significant_2)
 
