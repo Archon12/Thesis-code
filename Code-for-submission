@@ -1,6 +1,5 @@
 CHARALAMBOS ARIS ONOUFRIOU THESIS CODE 
 
-
 install.packages("ape")
 library(ape)
 install.packages("reshape2")
@@ -21,6 +20,10 @@ install.packages("stats")
 library(stats)
 install.packages("phylolm")
 library(phylolm)
+install.packages("httr")
+library(httr)
+install.packages("expm")
+library(expm)
 
 ##Download traits from coral traits site##
 
@@ -49,10 +52,10 @@ for (i in traits_list) {
       return(x)                        
     }
   }
-
+  
   trait <- acast(metadata, specie_name~trait_name, value.var="value", fun.aggregate=my_aggregate_rules, fill="")
   
- 
+  
   trait_df <- data.frame(trait, stringsAsFactors=FALSE)
   
   
@@ -83,17 +86,16 @@ newtree <- read.tree("Newtree.tre")
 traits.nosubclade <- read.csv("traits.nosubclade.csv", header = TRUE, row.names = 1)
 
 ##Pagels Lambda- continuous data##
-install.packages("phyools")
-library(phytools)
-library(graphics)
- 
+
+
 growthrate.signal <- phylosig(tree = newtree, traits.nosubclade$Growth.rate, method = "lambda", test = TRUE)
 growth.signal <- growthrate.signal$lambda
+
 ######################################################
 
 ##delta statistic - categorical data##
-library(ape)
-library(expm)
+
+
 
 #NENTROPY
 #returns the node entropies by calculating sum of the state entropies
@@ -312,7 +314,7 @@ vulne.signal <- delta(trait = traits.nosubclade$Overall.CC.Vulnerability,tree = 
 #coloniality#
 random_delta_col <- rep(NA,100)
 for (i in 1:100){
-    rtrait <- sample(traits.nosubclade$Coloniality)
+  rtrait <- sample(traits.nosubclade$Coloniality)
   random_delta_col[i] <- delta(rtrait, newtree, lambda0 = 0, se = 0.05, sim = 10000,thin = 10, burn = 100)
 }
 p_value_col <- sum(random_delta_col>col.signal)/length(random_delta_col)
@@ -479,17 +481,7 @@ trait.imp <- missForest(traits.nosubclade)
 imputed.species <- as.data.frame(trait.imp$ximp)
 write.csv(imputed.species, "Imputed species.csv")
 
-imputed.species <- read.csv("Imputed species.csv", header = TRUE)
-imputed.species <- gsub(" ", "_", imputed.species[[1]])
 
-
-##import imputed species file##
-imputed.species <- read.csv("Imputed species.csv", header = TRUE)
-
-#turn imputation from chr to factor# - not needed, imputed data turned to binary
-#for (col in 1:2) {imputed.species[,col] <- factor(imputed.species[,col])}
-#for (col in 4:11) {imputed.species[,col] <- factor(imputed.species[,col])}
-#str(imputed.species)
 
 ####################################################################################
 
@@ -497,7 +489,7 @@ imputed.species <- read.csv("Imputed species.csv", header = TRUE)
 
 
 #import imputed.species.binary for analysis#
-imp.spp.binary <- read.csv("Imputed.species.binary.csv")
+imp.spp.binary <- read.csv("Imputed.species.binary.csv", header = TRUE, row.names = 1)
 
 #import and name check new tree#
 newtree <- read.tree("Newtree.tre")
@@ -535,4 +527,3 @@ summary(glmstep_significant)
 
 glmstep_significant_2 <-phyloglmstep(CC.unadaptability~hermaphrodite+Growth.rate+Clade.C+Clade.B, data = imp.spp.binary,phy = newtree, direction = "back")
 summary(glmstep_significant_2)
-
